@@ -22,7 +22,9 @@ DB_CONFIG = {
     "password": os.environ.get("PGPASSWORD", "hackathon"),
 }
 
-CHUNK_SIZE = 500  # characters per chunk
+CHUNK_SIZE = int(os.environ.get("DOC_CHUNK_SIZE", "500"))
+CHUNK_OVERLAP = int(os.environ.get("DOC_CHUNK_OVERLAP", "50"))
+MIN_CHUNK_LEN = 50
 
 
 def extract_text_from_pdf(pdf_path: Path) -> str:
@@ -36,8 +38,13 @@ def extract_text_from_pdf(pdf_path: Path) -> str:
     return "\n\n".join(text_parts)
 
 
-def chunk_text(text: str, size: int = CHUNK_SIZE) -> list[str]:
-    """Split text into chunks of approximately `size` characters."""
+def chunk_text(
+    text: str,
+    size: int = CHUNK_SIZE,
+    overlap: int = CHUNK_OVERLAP,
+    min_len: int = MIN_CHUNK_LEN,
+) -> list[tuple[int, str]]:
+    """Split text into chunks with paragraph-aware breaks and overlap."""
     if not text or not text.strip():
         return []
     chunks = []
@@ -45,16 +52,25 @@ def chunk_text(text: str, size: int = CHUNK_SIZE) -> list[str]:
     idx = 0
     while start < len(text):
         end = min(start + size, len(text))
-        # Try to break at word boundary
+        # Prefer break at paragraph (\n\n)
         if end < len(text):
-            last_space = text.rfind(" ", start, end + 1)
-            if last_space > start:
-                end = last_space + 1
+            para_break = text.rfind("\n\n", start, end + 1)
+            if para_break > start:
+                end = para_break + 2
+            else:
+                # Fall back to word boundary
+                last_space = text.rfind(" ", start, end + 1)
+                if last_space > start:
+                    end = last_space + 1
         chunk = text[start:end].strip()
-        if chunk:
+        if len(chunk) >= min_len:
             chunks.append((idx, chunk))
             idx += 1
-        start = end
+        # Overlap: next chunk starts overlap chars before end; ensure forward progress
+        next_start = end - overlap if end < len(text) and overlap > 0 else end
+        start = max(start + 1, next_start) if next_start <= start else next_start
+        if start >= len(text):
+            break
     return chunks
 
 
@@ -121,6 +137,10 @@ def main():
     try:
         for pdf_path in sorted(pdf_files):
             ingest_pdf(conn, pdf_path)
+        # Update planner statistics for efficient queries at scale
+        with conn.cursor() as cur:
+            cur.execute("ANALYZE document_chunks; ANALYZE documents;")
+        print("ANALYZE complete.")
     finally:
         conn.close()
 

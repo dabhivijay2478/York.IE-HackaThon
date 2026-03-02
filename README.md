@@ -246,9 +246,10 @@ No manual REINDEX. Triggers keep indices in sync.
 **What it does:**
 1. Scans `pdfs/` for `*.pdf` files
 2. Extracts text with pdfplumber (page by page)
-3. Splits text into ~500-character chunks at word boundaries
+3. Splits text into chunks (default 500 chars, 50 overlap) — paragraph-aware, word boundaries
 4. Inserts one row into `documents` (metadata + raw text)
 5. Inserts chunk rows into `document_chunks` (content only; trigger fills `search_vec`)
+6. Runs `ANALYZE` to update planner statistics
 
 **Run:** `python3 scripts/ingest_pdfs.py` (after SQL setup and truncate)
 
@@ -274,6 +275,40 @@ To clear all data and load only your PDFs again:
 docker exec -i pg18_hackathon psql -U hackathon -d doc_engine < sql/05_truncate.sql
 python3 scripts/ingest_pdfs.py
 ```
+
+---
+
+## Scaling (as PDFs increase)
+
+### Chunk tuning
+
+Chunk size and overlap are configurable via env vars:
+
+| Env var | Default | Purpose |
+|---------|---------|---------|
+| `DOC_CHUNK_SIZE` | 500 | Characters per chunk |
+| `DOC_CHUNK_OVERLAP` | 50 | Overlap between adjacent chunks (reduces missed phrase matches) |
+
+```bash
+DOC_CHUNK_SIZE=400 DOC_CHUNK_OVERLAP=50 python3 scripts/ingest_pdfs.py
+```
+
+### Post-ingest maintenance
+
+The ingest script runs `ANALYZE` automatically after loading. For manual runs or very large loads:
+
+```bash
+docker exec -i pg18_hackathon psql -U hackathon -d doc_engine < sql/07_maintain.sql
+```
+
+For 10k+ chunks, uncomment `VACUUM ANALYZE` in [sql/07_maintain.sql](sql/07_maintain.sql).
+
+### Chunking behavior
+
+- **Paragraph-aware:** Splits at `\n\n` when possible to keep related sentences together
+- **Word boundaries:** Falls back to last space within the size limit
+- **Overlap:** Adjacent chunks share 50 chars by default to catch phrases spanning boundaries
+- **Min length:** Chunks shorter than 50 chars are skipped
 
 ---
 
