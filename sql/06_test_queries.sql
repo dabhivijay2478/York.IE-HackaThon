@@ -91,22 +91,27 @@ SELECT * FROM search_documents('i.GreenFinance sustainable lending') LIMIT 5;
 
 -- ============================================================
 -- 6. FUZZY SEARCH (fuzzy_search) - Misspelling tolerance
+-- Uses word_similarity: finds best-matching word in chunk
+-- Single-word misspellings work best (e.g. "reveneu" -> "revenue")
 -- ============================================================
 
 -- 6.1 Misspelling: "revenue" -> "reveneu"
-SELECT * FROM fuzzy_search('reveneu operations', 0.2) LIMIT 5;
+SELECT * FROM fuzzy_search('reveneu', 0.3) LIMIT 5;
 
 -- 6.2 Misspelling: "consolidated" -> "consolodated"
-SELECT * FROM fuzzy_search('consolodated financial', 0.2) LIMIT 5;
+SELECT * FROM fuzzy_search('consolodated', 0.2) LIMIT 5;
 
 -- 6.3 Misspelling: "dividend" -> "dividant"
-SELECT * FROM fuzzy_search('interim dividant', 0.2) LIMIT 5;
+SELECT * FROM fuzzy_search('dividant', 0.2) LIMIT 5;
 
 -- 6.4 Misspelling: "financial" -> "finansial"
-SELECT * FROM fuzzy_search('finansial results', 0.15) LIMIT 5;
+SELECT * FROM fuzzy_search('finansial', 0.15) LIMIT 5;
 
 -- 6.5 Misspelling: "Infosys" -> "Infossys"
-SELECT * FROM fuzzy_search('Infossys IFRS', 0.2) LIMIT 5;
+SELECT * FROM fuzzy_search('Infossys', 0.2) LIMIT 5;
+
+-- 6.6 Misspelling: "operations" -> "operatons"
+SELECT * FROM fuzzy_search('operatons', 0.2) LIMIT 5;
 
 -- ============================================================
 -- 7. HYBRID SEARCH (hybrid_search) - FTS + Fuzzy combined
@@ -146,11 +151,11 @@ SELECT * FROM hybrid_search('revenue & profit') LIMIT 5;
 -- 8.3 Numbers in query
 SELECT * FROM hybrid_search('63437 crore') LIMIT 5;
 
--- 8.4 Fuzzy high threshold (strict)
-SELECT * FROM fuzzy_search('revenue', 0.9) LIMIT 5;
+-- 8.4 Fuzzy high threshold (strict, exact-ish match)
+SELECT * FROM fuzzy_search('revenue', 0.8) LIMIT 5;
 
--- 8.5 Fuzzy low threshold (permissive)
-SELECT * FROM fuzzy_search('rev', 0.05) LIMIT 5;
+-- 8.5 Fuzzy low threshold (permissive, short query)
+SELECT * FROM fuzzy_search('rev', 0.1) LIMIT 5;
 
 -- ============================================================
 -- 9. PERFORMANCE VERIFICATION (must be < 150ms)

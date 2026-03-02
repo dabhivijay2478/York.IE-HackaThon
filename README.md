@@ -97,21 +97,22 @@ SELECT * FROM search_documents('annual report') LIMIT 5;
 SELECT * FROM search_documents('financial results') LIMIT 5;
 ```
 
-### Fuzzy Search (misspelling tolerance)
+### Fuzzy Search (misspelling tolerance, uses word_similarity)
 
 ```sql
-SELECT * FROM fuzzy_search('anual report', 0.2) LIMIT 5;
-SELECT * FROM fuzzy_search('reveneu growth', 0.15) LIMIT 5;
-SELECT * FROM fuzzy_search('consolodated', 0.2) LIMIT 5;
+SELECT * FROM fuzzy_search('reveneu', 0.3) LIMIT 5;      -- finds "revenue"
+SELECT * FROM fuzzy_search('consolodated', 0.2) LIMIT 5; -- finds "consolidated"
+SELECT * FROM fuzzy_search('dividant', 0.2) LIMIT 5;     -- finds "dividend"
+SELECT * FROM fuzzy_search('finansial', 0.15) LIMIT 5;  -- finds "financial"
 ```
 
 ### Hybrid Search (FTS + fuzzy)
 
 ```sql
-SELECT * FROM hybrid_search('annual report 2024') LIMIT 5;
-SELECT * FROM hybrid_search('anual report reveneu') LIMIT 5;
+SELECT * FROM hybrid_search('revenue operations') LIMIT 5;
+SELECT * FROM hybrid_search('reveneu profit') LIMIT 5;   -- fuzzy finds "revenue"
 SELECT * FROM hybrid_search('IFRS press release') LIMIT 5;
-SELECT * FROM hybrid_search('Q3 FY26') LIMIT 5;
+SELECT * FROM hybrid_search('Q3 FY26 EBIT') LIMIT 5;
 ```
 
 ### Edge Cases
@@ -124,10 +125,10 @@ SELECT * FROM search_documents('xyznonexistent123') LIMIT 5;
 SELECT * FROM hybrid_search('revenue & growth') LIMIT 5;
 
 -- Fuzzy high threshold (strict)
-SELECT * FROM fuzzy_search('revenue', 0.9) LIMIT 5;
+SELECT * FROM fuzzy_search('revenue', 0.8) LIMIT 5;
 
 -- Fuzzy low threshold (permissive)
-SELECT * FROM fuzzy_search('rev', 0.05) LIMIT 5;
+SELECT * FROM fuzzy_search('rev', 0.1) LIMIT 5;
 ```
 
 ### Performance (must be < 150ms)
@@ -150,7 +151,7 @@ SELECT d.title, COUNT(c.id) AS chunk_count FROM documents d LEFT JOIN document_c
 | Function | Usage |
 |----------|-------|
 | `search_documents(query)` | Full-text search with ts_rank |
-| `fuzzy_search(query, threshold)` | Trigram similarity (default 0.3) |
+| `fuzzy_search(query, threshold)` | word_similarity for misspellings (default 0.3) |
 | `hybrid_search(query)` | FTS + trigram combined |
 
 ---
