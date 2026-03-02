@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:18
+    container_name: pg18_hackathon
+    environment:
+      POSTGRES_USER: hackathon
+      POSTGRES_PASSWORD: hackathon
+      POSTGRES_DB: doc_engine
+    ports:
+      - "5433:5432"
+    volumes:
+      - pg18_data:/var/lib/postgresql
+
+volumes:
+  pg18_data:
