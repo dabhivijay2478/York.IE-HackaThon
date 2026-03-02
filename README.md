@@ -156,6 +156,104 @@ SELECT d.title, COUNT(c.id) AS chunk_count FROM documents d LEFT JOIN document_c
 
 ---
 
+## How It Works
+
+### Architecture Overview
+
+```
+PDFs (pdfs/) → ingest_pdfs.py → documents + document_chunks
+                                        ↓
+                              Triggers auto-fill search_vec
+                                        ↓
+                    GIN indexes (tsvector + trigram) enable fast search
+                                        ↓
+              search_documents | fuzzy_search | hybrid_search
+```
+
+### Schema
+
+- **documents** — One row per PDF: `id`, `title`, `source_file`, `raw_content`, `created_at`, `updated_at`
+- **document_chunks** — Text chunks (~500 chars) from each PDF: `id`, `document_id`, `chunk_index`, `content`, `search_vec`, `created_at`
+- **search_vec** — tsvector column for full-text search; populated by trigger on INSERT/UPDATE
+
+### Triggers (Real-Time Indexing)
+
+| Trigger | Table | When | What |
+|---------|-------|------|------|
+| `trg_chunks_search_vec` | document_chunks | BEFORE INSERT/UPDATE | Sets `search_vec := to_tsvector('english', content)` |
+| `trg_docs_updated_at` | documents | BEFORE UPDATE | Sets `updated_at := NOW()` |
+
+No manual REINDEX. Triggers keep indices in sync.
+
+### Function 1: `search_documents(query)`
+
+**Purpose:** Full-text search with relevance ranking.
+
+**How it works:**
+1. Converts query to tsquery via `websearch_to_tsquery('english', query)` — handles natural phrases like "revenue growth"
+2. Filters chunks where `search_vec @@ tsquery` (matches)
+3. Ranks with `ts_rank(search_vec, tsquery)` — higher = more relevant
+4. Returns top 20 chunks ordered by rank
+
+**Use when:** Exact or near-exact word matches; no misspellings.
+
+### Function 2: `fuzzy_search(query, threshold)`
+
+**Purpose:** Find chunks containing words similar to the query (tolerates misspellings).
+
+**How it works:**
+1. Uses `word_similarity(query, content)` from pg_trgm — finds the best-matching word in each chunk
+2. `word_similarity` compares the query to each word in the chunk and returns the max similarity (0–1)
+3. Filters chunks where similarity ≥ threshold (default 0.3)
+4. Returns top 20 chunks ordered by similarity
+
+**Why word_similarity?** `similarity(content, query)` fails on long chunks (low scores). `word_similarity(query, content)` finds the best word match (e.g. "reveneu" → "revenue").
+
+**Use when:** User may misspell; single-word queries work best.
+
+### Function 3: `hybrid_search(query)`
+
+**Purpose:** Combine full-text and fuzzy search for best recall and ranking.
+
+**How it works:**
+1. Includes chunks that match FTS **or** have `word_similarity(query, content) >= 0.2`
+2. Score = `ts_rank * 0.7 + word_similarity * 0.3` (FTS weighted higher)
+3. Returns top 20 chunks ordered by score
+
+**Use when:** General-purpose search; handles both exact and misspelled queries.
+
+### Verify Performance Script
+
+**File:** `scripts/verify_performance.py`
+
+**What it does:**
+1. Connects to Postgres (localhost:5433, doc_engine, hackathon)
+2. Runs `hybrid_search('document intelligence')` as a warm-up
+3. Runs `EXPLAIN (ANALYZE, BUFFERS) SELECT * FROM hybrid_search(...)` to measure execution
+4. Parses "Execution Time: X.XXX ms" from the output
+5. Passes if < 150ms, fails otherwise
+
+**Run:** `python3 scripts/verify_performance.py`
+
+**Override connection:** Set `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD` env vars.
+
+**Override test query:** Edit `TEST_QUERY` in the script (default: `"document intelligence"`).
+
+### PDF Ingestion Script
+
+**File:** `scripts/ingest_pdfs.py`
+
+**What it does:**
+1. Scans `pdfs/` for `*.pdf` files
+2. Extracts text with pdfplumber (page by page)
+3. Splits text into ~500-character chunks at word boundaries
+4. Inserts one row into `documents` (metadata + raw text)
+5. Inserts chunk rows into `document_chunks` (content only; trigger fills `search_vec`)
+
+**Run:** `python3 scripts/ingest_pdfs.py` (after SQL setup and truncate)
+
+---
+
 ## Connection
 
 | Setting | Value |
